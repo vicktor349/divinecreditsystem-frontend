@@ -9,7 +9,12 @@ interface ButtonProps {
 
 const Button = ({ children, onClick, className, disabled }: ButtonProps) => {
     return (
-        <button className={`${className}`} onClick={onClick} type='submit' disabled={disabled}>
+        <button
+            className={`${className} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+            onClick={onClick}
+            type='submit'
+            disabled={disabled}
+        >
             {children}
         </button>
     )
