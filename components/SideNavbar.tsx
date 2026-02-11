@@ -46,6 +46,7 @@ export default function SideNavbar() {
   }, [isSuperadmin]);
 
   const isActive = (href: string) =>
+    router.asPath === href ||
     router.pathname === href ||
     (href !== '/dashboard' && router.pathname.startsWith(href));
 
