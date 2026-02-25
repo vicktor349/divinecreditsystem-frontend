@@ -53,7 +53,7 @@ function calculate(principal: number, rate: number, tenure: number, type: 'flat'
     const monthlyPrincipal = principal / tenure;
     let balance = principal;
     for (let i = 1; i <= tenure; i++) {
-      const interest = (rate / 100) * balance;
+      const interest = parseFloat((rate / 12 / 100).toFixed(8)) * balance;
       const payment = monthlyPrincipal + interest;
       totalInterest += interest;
       balance -= monthlyPrincipal;
