@@ -20,7 +20,7 @@ export default function LoginPage() {
     if (!authLoading && isAuthenticated) {
       router.replace('/dashboard');
     }
-  }, [isAuthenticated, authLoading]);
+  }, [isAuthenticated, authLoading, router]);
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
