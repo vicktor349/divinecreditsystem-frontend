@@ -6,7 +6,7 @@ export function useCustomers(search?: string, page = 1, limit = 10) {
   const { data, error, isLoading, mutate } = useSWR<CustomersResponse>(
     key,
     () => customerService.getAll(search, page, limit),
-    { revalidateOnFocus: false },
+    { revalidateOnFocus: true, dedupingInterval: 5000 },
   );
   return {
     customers: data?.customers ?? [],
