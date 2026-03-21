@@ -13,7 +13,7 @@ export function useActiveLoans() {
   const { data, error, isLoading, mutate } = useSWR<ActiveLoansResponse>(
     'active-loans',
     loanService.getActiveLoans,
-    { refreshInterval: 30000, revalidateOnFocus: true },
+    { refreshInterval: 60000, revalidateOnFocus: true, dedupingInterval: 10000 },
   );
   return { loans: data?.loans ?? [], count: data?.count ?? 0, isLoading, isError: error, mutate };
 }
