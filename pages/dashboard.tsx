@@ -107,7 +107,7 @@ export default function Dashboard() {
       </div>
     </div>
   );
-  if (!isAuthenticated && !authLoading) { router.push('/'); return null; }
+  if (!isAuthenticated && !authLoading) { router.replace('/'); return null; }
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
