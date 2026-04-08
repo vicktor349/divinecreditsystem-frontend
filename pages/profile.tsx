@@ -14,7 +14,7 @@ export default function ProfilePage() {
       <div className="w-7 h-7 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
     </div>
   );
-  if (!isAuthenticated && !isLoading) { router.push('/'); return null; }
+  if (!isAuthenticated && !isLoading) { router.replace('/'); return null; }
 
   const fields = [
     { icon: <MdPerson size={17} />, label: 'Full Name', value: user?.name ?? '—' },
