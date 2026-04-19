@@ -15,7 +15,7 @@ import { adminService, AdminUser } from '@/services/admin.service';
 const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' });
 
-const fmtLastSeen = (d: string | null) => {
+const fmtLastSeen = (d: string | null | undefined) => {
   if (!d) return 'Never';
   const date = new Date(d);
   const now = new Date();
