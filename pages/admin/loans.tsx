@@ -44,7 +44,7 @@ export default function AdminLoansPage() {
     </div>
   );
 
-  if (!isAuthenticated && !authLoading) { router.push('/'); return null; }
+  if (!isAuthenticated && !authLoading) { router.replace('/'); return null; }
 
   if (user?.role !== 'admin') {
     return (
