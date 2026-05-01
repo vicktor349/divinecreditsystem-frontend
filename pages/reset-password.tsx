@@ -6,6 +6,7 @@ import { MdLock, MdVisibility, MdVisibilityOff, MdCheckCircle } from 'react-icon
 
 const API = process.env.NEXT_PUBLIC_AUTH_API_URL || 'http://localhost:3001';
 
+// Guard: redirect to /forgot-password if token is absent or expired
 export default function ResetPassword() {
   const router = useRouter();
   const { token } = router.query;
