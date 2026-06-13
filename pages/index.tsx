@@ -75,7 +75,7 @@ export default function LoginPage() {
               className="object-contain mb-3"
               priority
             />
-            <h1 className="text-2xl font-bold text-gray-900">Divine Credit System</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Divine Credit System - DEMO</h1>
             <p className="text-sm text-gray-500 mt-1">Sign in to your account</p>
           </div>
 
