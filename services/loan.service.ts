@@ -23,6 +23,7 @@ export interface Loan {
   nextPaymentDate: string | null;
   nextPaymentAmount: number | null;
   status: 'notActive' | 'active' | 'repaid' | 'defaulted' | 'pending';
+  defaultPenaltyRate?: number | null;
   rejectionReason?: string;
   createdAt: string;
   customer: LoanCustomer;
@@ -147,4 +148,13 @@ export const loanService = {
 
   rejectLoan: (id: number, reason: string) =>
     apiClient.patch<{ message: string; loanAccount: Loan }>(`/loan/${id}/reject`, { reason }),
+
+  // Feature #4: Default penalty
+  setDefaultPenaltyRate: (id: number, rate: number) =>
+    apiClient.patch<{ message: string; loanAccount: Loan }>(`/loan/${id}/default-penalty`, { rate }),
+
+  applyDefaultPenalty: (id: number) =>
+    apiClient.post<{ message: string; penaltyAmount: number; previousBalance: number; newDepositBalance: number }>(
+      `/loan/${id}/apply-penalty`,
+    ),
 };

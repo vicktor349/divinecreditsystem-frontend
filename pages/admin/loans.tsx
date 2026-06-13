@@ -8,6 +8,7 @@ import Modal from '@/components/Modal';
 import EmptyState from '@/components/EmptyState';
 import { useUser } from '@/context/UserContext';
 import { loanService } from '@/services/loan.service';
+import { depositService } from '@/services/deposit.service';
 import { useToast } from '@/context/ToastContext';
 import {
   MdCheckCircle,
@@ -15,6 +16,8 @@ import {
   MdAccountBalance,
   MdPerson,
   MdAccessTime,
+  MdTrendingUp,
+  MdTrendingDown,
 } from 'react-icons/md';
 
 const fmt = (n: number) =>
@@ -23,19 +26,35 @@ const fmt = (n: number) =>
 const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
+type ActiveTab = 'loans' | 'deposits';
+
 export default function AdminLoansPage() {
   const { user, isLoading: authLoading, isAuthenticated } = useUser();
   const router = useRouter();
   const { showToast } = useToast();
 
+  const [activeTab, setActiveTab] = useState<ActiveTab>('loans');
+
+  // Loan state
   const [rejectModal, setRejectModal] = useState(false);
   const [selectedLoanId, setSelectedLoanId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [processing, setProcessing] = useState<number | null>(null);
 
-  const { data, isLoading, mutate } = useSWR(
+  // Deposit request state
+  const [depositRejectModal, setDepositRejectModal] = useState(false);
+  const [selectedDepositId, setSelectedDepositId] = useState<number | null>(null);
+  const [depositRejectReason, setDepositRejectReason] = useState('');
+  const [depositProcessing, setDepositProcessing] = useState<number | null>(null);
+
+  const { data: loanData, isLoading: loanLoading, mutate: mutateLoan } = useSWR(
     isAuthenticated && user?.role === 'admin' ? 'pending-loans' : null,
-    () => loanService.getPendingLoans()
+    () => loanService.getPendingLoans(),
+  );
+
+  const { data: depositData, isLoading: depositLoading, mutate: mutateDeposits } = useSWR(
+    isAuthenticated && user?.role === 'admin' ? 'pending-deposit-requests' : null,
+    () => depositService.getPendingDepositRequests(),
   );
 
   if (authLoading) return (
@@ -62,14 +81,16 @@ export default function AdminLoansPage() {
     );
   }
 
-  const loans = (data as any)?.loans ?? [];
+  const loans = (loanData as any)?.loans ?? [];
+  const depositRequests = (depositData as any)?.requests ?? [];
 
+  // ── Loan actions ────────────────────────────────────────────────
   async function handleApprove(loanId: number) {
     setProcessing(loanId);
     try {
       await loanService.approveLoan(loanId);
-      showToast('Loan approved successfully', 'success');
-      mutate();
+      showToast('Loan approved — principal credited to customer deposit account', 'success');
+      mutateLoan();
     } catch (err: any) {
       showToast(err?.response?.data?.message ?? 'Failed to approve loan', 'error');
     } finally {
@@ -90,7 +111,7 @@ export default function AdminLoansPage() {
       await loanService.rejectLoan(selectedLoanId, rejectReason || 'Loan rejected by admin');
       showToast('Loan rejected', 'success');
       setRejectModal(false);
-      mutate();
+      mutateLoan();
     } catch (err: any) {
       showToast(err?.response?.data?.message ?? 'Failed to reject loan', 'error');
     } finally {
@@ -98,115 +119,283 @@ export default function AdminLoansPage() {
     }
   }
 
+  // ── Deposit request actions ──────────────────────────────────────
+  async function handleApproveDeposit(id: number) {
+    setDepositProcessing(id);
+    try {
+      const res: any = await depositService.approveDepositRequest(id);
+      showToast(res.message ?? 'Request approved', 'success');
+      mutateDeposits();
+    } catch (err: any) {
+      showToast(err?.response?.data?.message ?? 'Failed to approve request', 'error');
+    } finally {
+      setDepositProcessing(null);
+    }
+  }
+
+  function openDepositRejectModal(id: number) {
+    setSelectedDepositId(id);
+    setDepositRejectReason('');
+    setDepositRejectModal(true);
+  }
+
+  async function handleRejectDeposit() {
+    if (!selectedDepositId) return;
+    setDepositProcessing(selectedDepositId);
+    try {
+      await depositService.rejectDepositRequest(selectedDepositId, depositRejectReason || 'Rejected by admin');
+      showToast('Request rejected', 'success');
+      setDepositRejectModal(false);
+      mutateDeposits();
+    } catch (err: any) {
+      showToast(err?.response?.data?.message ?? 'Failed to reject request', 'error');
+    } finally {
+      setDepositProcessing(null);
+    }
+  }
+
+  const pendingLoansCount = loans.length;
+  const pendingDepositsCount = depositRequests.length;
+
   return (
     <DashboardLayout>
-      <Head><title>Divine Credit System | Pending Loans</title></Head>
+      <Head><title>Divine Credit System | Admin Approvals</title></Head>
 
       <div className="max-w-5xl mx-auto space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Pending Loan Approvals</h1>
-            <p className="text-sm text-slate-500 mt-1">Review and approve or reject submitted loans</p>
+            <h1 className="text-2xl font-bold text-slate-900">Admin Approvals</h1>
+            <p className="text-sm text-slate-500 mt-1">Review and approve pending loan and deposit requests</p>
           </div>
-          {loans.length > 0 && (
-            <span className="bg-amber-100 text-amber-700 text-sm font-semibold px-3 py-1.5 rounded-xl">
-              {loans.length} pending
-            </span>
-          )}
+          <div className="flex gap-2">
+            {pendingLoansCount > 0 && (
+              <span className="bg-amber-100 text-amber-700 text-sm font-semibold px-3 py-1.5 rounded-xl">
+                {pendingLoansCount} loan{pendingLoansCount !== 1 ? 's' : ''}
+              </span>
+            )}
+            {pendingDepositsCount > 0 && (
+              <span className="bg-blue-100 text-blue-700 text-sm font-semibold px-3 py-1.5 rounded-xl">
+                {pendingDepositsCount} deposit{pendingDepositsCount !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Content */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <div className="w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : loans.length === 0 ? (
-            <EmptyState
-              icon={<MdAccountBalance />}
-              title="No pending loans"
-              description="All loan applications have been reviewed. New submissions will appear here."
-            />
-          ) : (
-            <div className="divide-y divide-slate-100">
-              {loans.map((loan: any, i: number) => (
-                <div key={loan.id} className="p-5 hover:bg-slate-50/50 transition-colors animate-slide-up" style={{ animationDelay: `${i * 40}ms` }}>
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                    {/* Left: Loan info */}
-                    <div className="flex-1 space-y-3">
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <Badge variant="pending" />
-                        <span className="font-mono text-sm text-slate-500">{loan.accountNumber}</span>
-                      </div>
+        {/* Tabs */}
+        <div className="flex gap-1 bg-white border border-slate-200 p-1 rounded-xl w-fit shadow-sm">
+          {([
+            ['loans', 'Loan Approvals', pendingLoansCount],
+            ['deposits', 'Deposit Requests', pendingDepositsCount],
+          ] as const).map(([t, label, count]) => (
+            <button
+              key={t}
+              onClick={() => setActiveTab(t)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 whitespace-nowrap ${
+                activeTab === t
+                  ? 'bg-green-600 text-white shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              {label}
+              {count > 0 && (
+                <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${
+                  activeTab === t ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
 
-                      <div className="flex items-center gap-2">
-                        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-green-500 to-green-700 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                          {loan.customer?.name?.charAt(0).toUpperCase()}
+        {/* ── Loan approvals tab ──────────────────────────────────── */}
+        {activeTab === 'loans' && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            {loanLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : loans.length === 0 ? (
+              <EmptyState
+                icon={<MdAccountBalance />}
+                title="No pending loans"
+                description="All loan applications have been reviewed. New submissions will appear here."
+              />
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {loans.map((loan: any, i: number) => (
+                  <div key={loan.id} className="p-5 hover:bg-slate-50/50 transition-colors animate-slide-up" style={{ animationDelay: `${i * 40}ms` }}>
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                      <div className="flex-1 space-y-3">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <Badge variant="pending" />
+                          <span className="font-mono text-sm text-slate-500">{loan.accountNumber}</span>
                         </div>
-                        <div>
-                          <p className="text-[14px] font-semibold text-slate-900">{loan.customer?.name}</p>
-                          <p className="text-[12px] text-slate-400">{loan.customer?.phone}</p>
+                        <div className="flex items-center gap-2">
+                          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-green-500 to-green-700 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                            {loan.customer?.name?.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-[14px] font-semibold text-slate-900">{loan.customer?.name}</p>
+                            <p className="text-[12px] text-slate-400">{loan.customer?.phone}</p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div className="bg-slate-50 rounded-xl px-3 py-2">
+                            <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-0.5">Principal</p>
+                            <p className="text-[13px] font-bold text-slate-900">{fmt(Number(loan.principalAmount))}</p>
+                          </div>
+                          <div className="bg-slate-50 rounded-xl px-3 py-2">
+                            <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-0.5">Interest</p>
+                            <p className="text-[13px] font-bold text-slate-900">{loan.interestRate}% p.m.</p>
+                          </div>
+                          <div className="bg-slate-50 rounded-xl px-3 py-2">
+                            <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-0.5">Tenure</p>
+                            <p className="text-[13px] font-bold text-slate-900">{loan.tenureMonths} months</p>
+                          </div>
+                          <div className="bg-slate-50 rounded-xl px-3 py-2">
+                            <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-0.5">Type</p>
+                            <p className="text-[13px] font-bold text-slate-900 capitalize">{loan.loanType}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4 text-[12px] text-slate-400">
+                          <span className="flex items-center gap-1">
+                            <MdPerson size={13} /> Submitted by {loan.createdBy?.name ?? loan.createdBy?.email}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <MdAccessTime size={13} /> {fmtDate(loan.createdAt)}
+                          </span>
                         </div>
                       </div>
-
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        <div className="bg-slate-50 rounded-xl px-3 py-2">
-                          <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-0.5">Principal</p>
-                          <p className="text-[13px] font-bold text-slate-900">{fmt(Number(loan.principalAmount))}</p>
-                        </div>
-                        <div className="bg-slate-50 rounded-xl px-3 py-2">
-                          <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-0.5">Interest</p>
-                          <p className="text-[13px] font-bold text-slate-900">{loan.interestRate}%</p>
-                        </div>
-                        <div className="bg-slate-50 rounded-xl px-3 py-2">
-                          <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-0.5">Tenure</p>
-                          <p className="text-[13px] font-bold text-slate-900">{loan.tenureMonths} months</p>
-                        </div>
-                        <div className="bg-slate-50 rounded-xl px-3 py-2">
-                          <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-0.5">Type</p>
-                          <p className="text-[13px] font-bold text-slate-900 capitalize">{loan.loanType}</p>
-                        </div>
+                      <div className="flex sm:flex-col gap-2 sm:min-w-[140px]">
+                        <button
+                          onClick={() => handleApprove(loan.id)}
+                          disabled={processing === loan.id}
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-50 active:scale-95 transition-all shadow-sm shadow-green-600/25"
+                        >
+                          <MdCheckCircle size={16} />
+                          {processing === loan.id ? 'Processing...' : 'Approve'}
+                        </button>
+                        <button
+                          onClick={() => openRejectModal(loan.id)}
+                          disabled={processing === loan.id}
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 border border-red-200 text-red-600 px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-red-50 disabled:opacity-50 active:scale-95 transition-all"
+                        >
+                          <MdCancel size={16} /> Reject
+                        </button>
                       </div>
-
-                      <div className="flex items-center gap-4 text-[12px] text-slate-400">
-                        <span className="flex items-center gap-1">
-                          <MdPerson size={13} /> Submitted by {loan.createdBy?.name ?? loan.createdBy?.email}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <MdAccessTime size={13} /> {fmtDate(loan.createdAt)}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Right: Actions */}
-                    <div className="flex sm:flex-col gap-2 sm:min-w-[140px]">
-                      <button
-                        onClick={() => handleApprove(loan.id)}
-                        disabled={processing === loan.id}
-                        className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-50 active:scale-95 transition-all shadow-sm shadow-green-600/25"
-                      >
-                        <MdCheckCircle size={16} />
-                        {processing === loan.id ? 'Processing...' : 'Approve'}
-                      </button>
-                      <button
-                        onClick={() => openRejectModal(loan.id)}
-                        disabled={processing === loan.id}
-                        className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 border border-red-200 text-red-600 px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-red-50 disabled:opacity-50 active:scale-95 transition-all"
-                      >
-                        <MdCancel size={16} />
-                        Reject
-                      </button>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Deposit requests tab ────────────────────────────────── */}
+        {activeTab === 'deposits' && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            {depositLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : depositRequests.length === 0 ? (
+              <EmptyState
+                icon={<MdAccountBalance />}
+                title="No pending deposit requests"
+                description="All deposit and withdrawal requests have been reviewed."
+              />
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {depositRequests.map((req: any, i: number) => (
+                  <div key={req.id} className="p-5 hover:bg-slate-50/50 transition-colors animate-slide-up" style={{ animationDelay: `${i * 40}ms` }}>
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                      <div className="flex-1 space-y-3">
+                        {/* Type badge */}
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <span className={`inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1 rounded-full ${
+                            req.type === 'deposit'
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-red-100 text-red-700'
+                          }`}>
+                            {req.type === 'deposit'
+                              ? <MdTrendingUp size={13} />
+                              : <MdTrendingDown size={13} />}
+                            {req.type === 'deposit' ? 'Deposit Request' : 'Withdrawal Request'}
+                          </span>
+                          <span className="font-mono text-sm text-slate-500">{req.depositAccount?.accountNumber}</span>
+                        </div>
+
+                        {/* Customer */}
+                        <div className="flex items-center gap-2">
+                          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                            {req.depositAccount?.customer?.name?.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-[14px] font-semibold text-slate-900">{req.depositAccount?.customer?.name}</p>
+                            <p className="text-[12px] text-slate-400">{req.depositAccount?.customer?.phone}</p>
+                          </div>
+                        </div>
+
+                        {/* Details */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                          <div className="bg-slate-50 rounded-xl px-3 py-2">
+                            <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-0.5">Amount</p>
+                            <p className={`text-[13px] font-bold ${req.type === 'deposit' ? 'text-green-700' : 'text-red-600'}`}>
+                              {req.type === 'deposit' ? '+' : '-'}{fmt(Number(req.amount))}
+                            </p>
+                          </div>
+                          <div className="bg-slate-50 rounded-xl px-3 py-2">
+                            <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-0.5">Current Balance</p>
+                            <p className={`text-[13px] font-bold ${Number(req.depositAccount?.balance) < 0 ? 'text-red-600' : 'text-slate-900'}`}>
+                              {fmt(Number(req.depositAccount?.balance))}
+                            </p>
+                          </div>
+                          <div className="bg-slate-50 rounded-xl px-3 py-2 col-span-2 sm:col-span-1">
+                            <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-0.5">Narration</p>
+                            <p className="text-[13px] font-medium text-slate-700 truncate">{req.narration}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4 text-[12px] text-slate-400">
+                          <span className="flex items-center gap-1">
+                            <MdPerson size={13} /> Requested by {req.requestedBy?.name ?? req.requestedBy?.email}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <MdAccessTime size={13} /> {fmtDate(req.createdAt)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex sm:flex-col gap-2 sm:min-w-[140px]">
+                        <button
+                          onClick={() => handleApproveDeposit(req.id)}
+                          disabled={depositProcessing === req.id}
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-50 active:scale-95 transition-all shadow-sm shadow-green-600/25"
+                        >
+                          <MdCheckCircle size={16} />
+                          {depositProcessing === req.id ? 'Processing...' : 'Approve'}
+                        </button>
+                        <button
+                          onClick={() => openDepositRejectModal(req.id)}
+                          disabled={depositProcessing === req.id}
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 border border-red-200 text-red-600 px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-red-50 disabled:opacity-50 active:scale-95 transition-all"
+                        >
+                          <MdCancel size={16} /> Reject
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Reject modal */}
+      {/* Loan reject modal */}
       <Modal isOpen={rejectModal} onClose={() => setRejectModal(false)} title="Reject Loan Application" size="sm">
         <div className="space-y-4">
           <p className="text-sm text-slate-600">Please provide a reason for rejecting this loan application. This will be recorded for the audit trail.</p>
@@ -230,6 +419,38 @@ export default function AdminLoansPage() {
             </button>
             <button
               onClick={() => setRejectModal(false)}
+              className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition-all"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Deposit reject modal */}
+      <Modal isOpen={depositRejectModal} onClose={() => setDepositRejectModal(false)} title="Reject Deposit Request" size="sm">
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">Provide a reason for rejecting this deposit/withdrawal request.</p>
+          <div>
+            <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Rejection Reason</label>
+            <textarea
+              value={depositRejectReason}
+              onChange={e => setDepositRejectReason(e.target.value)}
+              placeholder="e.g. Incorrect amount entered"
+              rows={3}
+              className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 bg-slate-50 focus:bg-white transition-colors resize-none"
+            />
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={handleRejectDeposit}
+              disabled={depositProcessing !== null}
+              className="flex-1 bg-red-500 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-red-600 disabled:opacity-50 active:scale-95 transition-all"
+            >
+              {depositProcessing !== null ? 'Rejecting...' : 'Confirm Rejection'}
+            </button>
+            <button
+              onClick={() => setDepositRejectModal(false)}
               className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition-all"
             >
               Cancel

@@ -23,6 +23,8 @@ import {
   MdDownload,
   MdPrint,
   MdAccessTime,
+  MdPercent,
+  MdFlashOn,
 } from 'react-icons/md';
 import { formatNumberInput, parseFormattedNumber, numberToDisplay } from '@/lib/numberInput';
 
@@ -103,7 +105,7 @@ async function exportScheduleToPDF(loan: any, schedule: any) {
 
   const cols = [
     { label: 'Principal',     value: `NGN ${fmtPDF(Number(loan.principalAmount))}` },
-    { label: 'Interest Rate', value: `${loan.interestRate}% p.a.` },
+    { label: 'Interest Rate', value: `${loan.interestRate}% p.m.` },
     { label: 'Tenure',        value: `${loan.tenureMonths} months` },
     { label: 'Type',          value: (loan.loanType ?? '—').toUpperCase() },
     { label: 'Start Date',    value: loan.startDate ? new Date(loan.startDate).toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' }) : '—' },
@@ -353,7 +355,7 @@ const fmtDatetime = (d: string) =>
 type Tab = 'schedule' | 'repayments';
 
 export default function LoanDetailPage() {
-  const { isLoading: authLoading, isAuthenticated } = useUser();
+  const { isLoading: authLoading, isAuthenticated, user } = useUser();
   const router = useRouter();
   const id = router.query.id ? Number(router.query.id) : null;
 
@@ -381,6 +383,13 @@ export default function LoanDetailPage() {
   const [payCustomSubmitting, setPayCustomSubmitting] = useState(false);
   const [payCustomError, setPayCustomError] = useState('');
   const [exportingSchedule, setExportingSchedule] = useState(false);
+
+  // Default penalty (admin only)
+  const [penaltyRateModal, setPenaltyRateModal] = useState(false);
+  const [penaltyRateInput, setPenaltyRateInput] = useState('');
+  const [penaltyRateSubmitting, setPenaltyRateSubmitting] = useState(false);
+  const [penaltyRateError, setPenaltyRateError] = useState('');
+  const [applyingPenalty, setApplyingPenalty] = useState(false);
 
   // Receipt
   const [lastReceipt, setLastReceipt] = useState<{ amount: number; narration: string; outstandingBalance: number | null; status: string } | null>(null);
@@ -451,6 +460,42 @@ export default function LoanDetailPage() {
       showToast(err?.response?.data?.message ?? 'Failed to mark defaulted', 'error');
     } finally {
       setDefaulting(false);
+    }
+  }
+
+  async function handleSetPenaltyRate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!id) return;
+    setPenaltyRateError('');
+    setPenaltyRateSubmitting(true);
+    try {
+      const rate = parseFloat(penaltyRateInput);
+      if (isNaN(rate) || rate < 0 || rate > 100) {
+        setPenaltyRateError('Rate must be between 0 and 100');
+        return;
+      }
+      await loanService.setDefaultPenaltyRate(id, rate);
+      mutateLoan();
+      setPenaltyRateModal(false);
+      showToast(`Penalty rate set to ${rate}%`, 'success');
+    } catch (err: any) {
+      setPenaltyRateError(err?.response?.data?.message ?? 'Failed to set penalty rate');
+    } finally {
+      setPenaltyRateSubmitting(false);
+    }
+  }
+
+  async function handleApplyPenalty() {
+    if (!id) return;
+    setApplyingPenalty(true);
+    try {
+      const res: any = await loanService.applyDefaultPenalty(id);
+      mutateLoan();
+      showToast(res.message ?? 'Penalty applied', 'success');
+    } catch (err: any) {
+      showToast(err?.response?.data?.message ?? 'Failed to apply penalty', 'error');
+    } finally {
+      setApplyingPenalty(false);
     }
   }
 
@@ -585,6 +630,30 @@ export default function LoanDetailPage() {
                           <MdWarning size={15} /> Mark Defaulted
                         </button>
                       )}
+                      {/* Feature #4: Penalty controls — admin only, defaulted loans */}
+                      {loan.status === 'defaulted' && user?.role === 'admin' && (
+                        <>
+                          <button
+                            onClick={() => {
+                              setPenaltyRateInput(String(loan.defaultPenaltyRate ?? ''));
+                              setPenaltyRateError('');
+                              setPenaltyRateModal(true);
+                            }}
+                            className="flex items-center gap-1.5 border border-orange-200 text-orange-600 px-3.5 py-2 rounded-xl text-sm font-medium hover:bg-orange-50 active:scale-95 transition-all"
+                          >
+                            <MdPercent size={15} /> {loan.defaultPenaltyRate ? `Penalty: ${loan.defaultPenaltyRate}%` : 'Set Penalty Rate'}
+                          </button>
+                          {loan.defaultPenaltyRate && loan.defaultPenaltyRate > 0 && (
+                            <button
+                              onClick={handleApplyPenalty}
+                              disabled={applyingPenalty}
+                              className="flex items-center gap-1.5 bg-orange-500 text-white px-3.5 py-2 rounded-xl text-sm font-semibold hover:bg-orange-600 disabled:opacity-50 active:scale-95 transition-all shadow-sm shadow-orange-500/25"
+                            >
+                              <MdFlashOn size={15} /> {applyingPenalty ? 'Applying...' : 'Apply Penalty'}
+                            </button>
+                          )}
+                        </>
+                      )}
                     </>
                   )}
                 </div>
@@ -616,7 +685,7 @@ export default function LoanDetailPage() {
               {[
                 { label: 'Principal', value: fmt(Number(loan.principalAmount)), color: 'text-slate-800' },
                 { label: 'Outstanding', value: fmt(Number(loan.outstandingBalance)), color: 'text-amber-700' },
-                { label: 'Interest Rate', value: `${loan.interestRate}% p.a.`, color: 'text-blue-700' },
+                { label: 'Interest Rate', value: `${loan.interestRate}% p.m.`, color: 'text-blue-700' },
                 { label: 'Tenure', value: `${loan.tenureMonths} months`, color: 'text-violet-700' },
               ].map((s, i) => (
                 <div key={s.label} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm animate-slide-up" style={{ animationDelay: `${i * 50}ms` }}>
@@ -935,6 +1004,48 @@ export default function LoanDetailPage() {
               {payCustomSubmitting ? 'Processing...' : 'Deduct from Balance'}
             </button>
             <button type="button" onClick={() => setPayCustomModal(false)} className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition-all">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Set default penalty rate modal */}
+      <Modal isOpen={penaltyRateModal} onClose={() => setPenaltyRateModal(false)} title="Set Default Penalty Rate" size="sm">
+        <form onSubmit={handleSetPenaltyRate} className="space-y-4">
+          <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 text-sm text-orange-700">
+            <p className="font-semibold mb-1">How penalty works:</p>
+            <p>The penalty % is applied to the <strong>negative deposit balance</strong>. For example, if the deposit balance is <strong>-₦60,000</strong> and you set 10%, a charge of <strong>₦6,000</strong> will be deducted when you click "Apply Penalty", making the balance <strong>-₦66,000</strong>.</p>
+          </div>
+          <div>
+            <label className="block text-[13px] font-medium text-slate-700 mb-1.5">
+              Penalty Rate (%)
+              {loan?.defaultPenaltyRate && (
+                <span className="text-[11px] text-slate-400 ml-2">Current: {loan.defaultPenaltyRate}%</span>
+              )}
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              max="100"
+              required
+              placeholder="e.g. 5"
+              value={penaltyRateInput}
+              onChange={e => setPenaltyRateInput(e.target.value)}
+              className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-slate-50 focus:bg-white transition-colors"
+            />
+          </div>
+          {penaltyRateError && <p className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{penaltyRateError}</p>}
+          <div className="flex gap-3 pt-1">
+            <button
+              type="submit"
+              disabled={penaltyRateSubmitting}
+              className="flex-1 bg-orange-500 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-orange-600 disabled:opacity-50 active:scale-95 transition-all"
+            >
+              {penaltyRateSubmitting ? 'Saving...' : 'Save Penalty Rate'}
+            </button>
+            <button type="button" onClick={() => setPenaltyRateModal(false)} className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition-all">
               Cancel
             </button>
           </div>

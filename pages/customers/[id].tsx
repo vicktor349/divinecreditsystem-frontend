@@ -190,7 +190,7 @@ export default function CustomerDetailPage() {
     setTxSuccess('');
     setTxSubmitting(true);
     try {
-      const res: any = await depositService.transact({
+      const res: any = await depositService.requestDeposit({
         accountId: deposit.id,
         type: txType,
         amount: parseFormattedNumber(txForm.amount),
@@ -198,11 +198,14 @@ export default function CustomerDetailPage() {
       });
       const msg = res.message ?? 'Transaction successful';
       setTxSuccess(msg);
-      mutate();
       showToast(msg, 'success');
-      setTimeout(() => setTxModal(false), 1200);
+      if (res.approved) {
+        // Admin: balance updated immediately — refresh customer data
+        mutate();
+      }
+      setTimeout(() => setTxModal(false), 1800);
     } catch (err: any) {
-      setTxError(err?.response?.data?.message ?? 'Transaction failed');
+      setTxError(err?.response?.data?.message ?? 'Request failed');
     } finally {
       setTxSubmitting(false);
     }
@@ -446,7 +449,7 @@ export default function CustomerDetailPage() {
                     <div className="skeleton h-3 w-40 rounded" />
                   </div>
                 </div>
-              ) : creditScore ? (
+              ) : creditScore && creditScore.details.totalLoans > 0 ? (
                 <div className="flex flex-col sm:flex-row sm:items-center gap-6">
                   <CreditScoreGauge score={creditScore.score} grade={creditScore.grade} />
                   <div className="flex-1">
@@ -473,7 +476,7 @@ export default function CustomerDetailPage() {
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-slate-400">Credit score unavailable</p>
+                <p className="text-sm text-slate-400 italic">No loan history yet — credit score will appear once this customer has had at least one loan.</p>
               )}
             </div>
 
@@ -650,10 +653,19 @@ export default function CustomerDetailPage() {
       <Modal
         isOpen={txModal}
         onClose={() => setTxModal(false)}
-        title={txType === 'deposit' ? 'Make a Deposit' : 'Make a Withdrawal'}
+        title={user?.role === 'admin'
+          ? (txType === 'deposit' ? 'Make a Deposit' : 'Make a Withdrawal')
+          : (txType === 'deposit' ? 'Request Deposit' : 'Request Withdrawal')}
         size="sm"
       >
         <form onSubmit={handleTransaction} className="space-y-4">
+          {/* Staff-only approval notice */}
+          {user?.role !== 'admin' && (
+            <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
+              <MdAccessTime size={16} className="mt-0.5 flex-shrink-0" />
+              <p>This request will be sent to an admin for approval before the balance is updated.</p>
+            </div>
+          )}
           <div>
             <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Amount (₦)</label>
             <input
@@ -678,21 +690,25 @@ export default function CustomerDetailPage() {
             />
           </div>
           {txError && <p className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{txError}</p>}
-          {txSuccess && <p className="bg-green-50 border border-green-200 text-green-700 rounded-xl px-4 py-3 text-sm">{txSuccess}</p>}
+          {txSuccess && <p className="bg-green-50 border border-green-200 text-green-700 rounded-xl px-4 py-3 text-sm font-medium">{txSuccess}</p>}
           <div className="flex gap-3 pt-1">
             <button
               type="submit"
-              disabled={txSubmitting}
+              disabled={txSubmitting || !!txSuccess}
               className={`flex-1 text-white py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 active:scale-95 transition-all shadow-sm ${
                 txType === 'deposit'
                   ? 'bg-green-600 hover:bg-green-700 shadow-green-600/25'
                   : 'bg-red-500 hover:bg-red-600 shadow-red-500/25'
               }`}
             >
-              {txSubmitting ? 'Processing...' : txType === 'deposit' ? 'Deposit' : 'Withdraw'}
+              {txSubmitting
+                ? 'Processing...'
+                : user?.role === 'admin'
+                  ? (txType === 'deposit' ? 'Deposit' : 'Withdraw')
+                  : (txType === 'deposit' ? 'Submit Deposit Request' : 'Submit Withdrawal Request')}
             </button>
             <button type="button" onClick={() => setTxModal(false)} className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition-all">
-              Cancel
+              {txSuccess ? 'Close' : 'Cancel'}
             </button>
           </div>
         </form>
@@ -721,9 +737,9 @@ export default function CustomerDetailPage() {
               />
             </div>
             <div>
-              <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Interest Rate (%)</label>
+              <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Interest Rate (% per month)</label>
               <input
-                type="text" inputMode="decimal" required placeholder="e.g. 5"
+                type="text" inputMode="decimal" required placeholder="e.g. 2"
                 value={loanForm.interestRate}
                 onChange={e => setLoanForm(f => ({ ...f, interestRate: formatNumberInput(e.target.value) }))}
                 className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-slate-50 focus:bg-white transition-colors"
