@@ -79,6 +79,32 @@ export default function LoginPage() {
             <p className="text-sm text-gray-500 mt-1">Sign in to your account</p>
           </div>
 
+          {/* Demo credentials banner */}
+          <div className="bg-green-50 border border-green-200 rounded-2xl px-5 py-4 mb-4">
+            <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">Demo Credentials</p>
+            <div className="flex items-center justify-between text-sm text-gray-700 mb-1">
+              <span className="text-gray-500">Email</span>
+              <button
+                type="button"
+                onClick={() => setEmail('demo@divinecredit.com')}
+                className="font-mono font-medium text-green-700 hover:underline"
+              >
+                demo@divinecredit.com
+              </button>
+            </div>
+            <div className="flex items-center justify-between text-sm text-gray-700">
+              <span className="text-gray-500">Password</span>
+              <button
+                type="button"
+                onClick={() => setPassword('Demo@1234')}
+                className="font-mono font-medium text-green-700 hover:underline"
+              >
+                Demo@1234
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">Click each value to auto-fill</p>
+          </div>
+
           {/* Form card */}
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
             <form onSubmit={handleSubmit} className="space-y-5">
