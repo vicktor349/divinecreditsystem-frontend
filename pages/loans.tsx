@@ -134,7 +134,7 @@ export default function LoansPage() {
                       <td className="px-5 py-3.5 text-right text-slate-500">{fmt(Number(loan.principalAmount))}</td>
                       <td className="px-5 py-3.5 text-right font-semibold text-amber-700">{fmt(Number(loan.outstandingBalance))}</td>
                       <td className="px-5 py-3.5 text-right text-slate-500">
-                        {loan.nextPaymentAmount ? fmt(loan.nextPaymentAmount) : '—'}
+                        {loan.nextPaymentAmount ? fmt(Number(loan.nextPaymentAmount)) : '—'}
                       </td>
                       <td className="px-5 py-3.5 text-slate-500">{fmtDate(loan.nextPaymentDate)}</td>
                       <td className="px-5 py-3.5"><Badge variant={loan.status as any} /></td>

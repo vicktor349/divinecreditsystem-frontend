@@ -105,8 +105,8 @@ async function exportScheduleToPDF(loan: any, schedule: any) {
 
   const cols = [
     { label: 'Principal',     value: `NGN ${fmtPDF(Number(loan.principalAmount))}` },
-    { label: 'Interest Rate', value: `${loan.interestRate}% p.m.` },
-    { label: 'Tenure',        value: `${loan.tenureMonths} months` },
+    { label: 'Interest Rate', value: `${loan.interestRate}% ${loan.paymentFrequency === 'weekly' ? 'p.w.' : 'p.m.'}` },
+    { label: 'Tenure',        value: `${loan.tenureMonths} ${loan.paymentFrequency === 'weekly' ? 'weeks' : 'months'}` },
     { label: 'Type',          value: (loan.loanType ?? '—').toUpperCase() },
     { label: 'Start Date',    value: loan.startDate ? new Date(loan.startDate).toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' }) : '—' },
     { label: 'End Date',      value: loan.endDate   ? new Date(loan.endDate).toLocaleDateString('en-NG',   { day: '2-digit', month: 'short', year: 'numeric' }) : '—' },
@@ -391,6 +391,12 @@ export default function LoanDetailPage() {
   const [penaltyRateError, setPenaltyRateError] = useState('');
   const [applyingPenalty, setApplyingPenalty] = useState(false);
 
+  // Interest rate editing (admin only, before first payment is due)
+  const [interestRateModal, setInterestRateModal] = useState(false);
+  const [interestRateInput, setInterestRateInput] = useState('');
+  const [interestRateSubmitting, setInterestRateSubmitting] = useState(false);
+  const [interestRateError, setInterestRateError] = useState('');
+
   // Receipt
   const [lastReceipt, setLastReceipt] = useState<{ amount: number; narration: string; outstandingBalance: number | null; status: string } | null>(null);
   const [printingReceiptId, setPrintingReceiptId] = useState<number | 'modal' | null>(null);
@@ -485,6 +491,28 @@ export default function LoanDetailPage() {
     }
   }
 
+  async function handleUpdateInterestRate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!id) return;
+    setInterestRateError('');
+    setInterestRateSubmitting(true);
+    try {
+      const rate = parseFloat(interestRateInput);
+      if (isNaN(rate) || rate < 0) {
+        setInterestRateError('Rate must be a positive number');
+        return;
+      }
+      await loanService.updateInterestRate(id, rate);
+      mutateLoan();
+      setInterestRateModal(false);
+      showToast(`Interest rate updated to ${rate}%`, 'success');
+    } catch (err: any) {
+      setInterestRateError(err?.response?.data?.message ?? 'Failed to update interest rate');
+    } finally {
+      setInterestRateSubmitting(false);
+    }
+  }
+
   async function handleApplyPenalty() {
     if (!id) return;
     setApplyingPenalty(true);
@@ -541,6 +569,21 @@ export default function LoanDetailPage() {
     ? Math.min(100, Math.max(0, ((totalPayable - Number(loan.outstandingBalance)) / totalPayable) * 100))
     : 0;
 
+  // Client-side hint only — the backend is the real enforcement of the lock.
+  const canEditInterestRate = !!loan && (loan.status === 'active' || loan.status === 'pending')
+    && (repayments?.length ?? 0) === 0
+    && (() => {
+      const firstDue = new Date(loan.startDate);
+      if (loan.paymentFrequency === 'weekly') {
+        firstDue.setDate(firstDue.getDate() + 7);
+      } else {
+        const day = firstDue.getDate();
+        firstDue.setMonth(firstDue.getMonth() + 1);
+        if (firstDue.getDate() !== day) firstDue.setDate(0);
+      }
+      return new Date() <= firstDue;
+    })();
+
   return (
     <DashboardLayout>
       <Head><title>Divine Credit System | Loan Detail</title></Head>
@@ -580,6 +623,7 @@ export default function LoanDetailPage() {
                       <h1 className="text-[17px] font-bold text-slate-900">{loan.customer?.name}</h1>
                       <Badge variant={loan.status} />
                       <Badge variant={loan.loanType} />
+                      <Badge variant={loan.paymentFrequency ?? 'monthly'} />
                     </div>
                     <p className="text-sm text-slate-500 mt-0.5">{loan.customer?.phone}</p>
                     <p className="font-mono text-[11px] text-slate-400 mt-0.5">{loan.accountNumber}</p>
@@ -592,6 +636,19 @@ export default function LoanDetailPage() {
                   >
                     <MdPerson size={15} /> View Customer
                   </Link>
+                  {user?.role === 'admin' && canEditInterestRate && (
+                    <button
+                      onClick={() => {
+                        setInterestRateInput(String(loan.interestRate ?? ''));
+                        setInterestRateError('');
+                        setInterestRateModal(true);
+                      }}
+                      className="flex items-center gap-1.5 border border-indigo-200 text-indigo-600 px-3.5 py-2 rounded-xl text-sm font-medium hover:bg-indigo-50 active:scale-95 transition-all"
+                      title="Edit interest rate (locked once a repayment is made or the first due date passes)"
+                    >
+                      <MdPercent size={15} /> Edit Interest Rate
+                    </button>
+                  )}
                   {loan.status === 'pending' && (
                     <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
                       <MdAccessTime size={16} className="text-amber-600 flex-shrink-0" />
@@ -604,7 +661,7 @@ export default function LoanDetailPage() {
                         onClick={openRepayModal}
                         className="flex items-center gap-1.5 bg-green-600 text-white px-3.5 py-2 rounded-xl text-sm font-semibold hover:bg-green-700 active:scale-95 transition-all shadow-sm shadow-green-600/25"
                       >
-                        <MdPayment size={15} /> Record Repayment
+                        <MdPayment size={15} /> Part Liquidation
                       </button>
                       {/* One-click: deduct exact next-due amount from deposit */}
                       <button
@@ -685,8 +742,8 @@ export default function LoanDetailPage() {
               {[
                 { label: 'Principal', value: fmt(Number(loan.principalAmount)), color: 'text-slate-800' },
                 { label: 'Outstanding', value: fmt(Number(loan.outstandingBalance)), color: 'text-amber-700' },
-                { label: 'Interest Rate', value: `${loan.interestRate}% p.m.`, color: 'text-blue-700' },
-                { label: 'Tenure', value: `${loan.tenureMonths} months`, color: 'text-violet-700' },
+                { label: 'Interest Rate', value: `${loan.interestRate}% ${loan.paymentFrequency === 'weekly' ? 'p.w.' : 'p.m.'}`, color: 'text-blue-700' },
+                { label: 'Tenure', value: `${loan.tenureMonths} ${loan.paymentFrequency === 'weekly' ? 'weeks' : 'months'}`, color: 'text-violet-700' },
               ].map((s, i) => (
                 <div key={s.label} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm animate-slide-up" style={{ animationDelay: `${i * 50}ms` }}>
                   <p className="text-[11px] text-slate-400 font-medium mb-1.5 uppercase tracking-wide">{s.label}</p>
@@ -703,7 +760,7 @@ export default function LoanDetailPage() {
                 {
                   label: 'Next Payment',
                   value: loan.nextPaymentDate
-                    ? `${fmtDate(loan.nextPaymentDate)} · ${fmt(loan.nextPaymentAmount ?? 0)}`
+                    ? `${fmtDate(loan.nextPaymentDate)} · ${fmt(Number(loan.nextPaymentAmount ?? 0))}`
                     : '—',
                   icon: <MdPayment size={15} />,
                 },
@@ -1010,6 +1067,46 @@ export default function LoanDetailPage() {
         </form>
       </Modal>
 
+      {/* Edit interest rate modal */}
+      <Modal isOpen={interestRateModal} onClose={() => setInterestRateModal(false)} title="Edit Interest Rate" size="sm">
+        <form onSubmit={handleUpdateInterestRate} className="space-y-4">
+          <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 text-sm text-indigo-700">
+            Changing the rate recalculates the outstanding balance and next payment amount. This is only allowed before the first repayment is made and before the first payment due date.
+          </div>
+          <div>
+            <label className="block text-[13px] font-medium text-slate-700 mb-1.5">
+              Interest Rate (% per month)
+              {loan?.interestRate != null && (
+                <span className="text-[11px] text-slate-400 ml-2">Current: {loan.interestRate}%</span>
+              )}
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              required
+              placeholder="e.g. 5"
+              value={interestRateInput}
+              onChange={e => setInterestRateInput(e.target.value)}
+              className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 focus:bg-white transition-colors"
+            />
+          </div>
+          {interestRateError && <p className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{interestRateError}</p>}
+          <div className="flex gap-3 pt-1">
+            <button
+              type="submit"
+              disabled={interestRateSubmitting}
+              className="flex-1 bg-indigo-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 active:scale-95 transition-all"
+            >
+              {interestRateSubmitting ? 'Saving...' : 'Save Interest Rate'}
+            </button>
+            <button type="button" onClick={() => setInterestRateModal(false)} className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition-all">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
+
       {/* Set default penalty rate modal */}
       <Modal isOpen={penaltyRateModal} onClose={() => setPenaltyRateModal(false)} title="Set Default Penalty Rate" size="sm">
         <form onSubmit={handleSetPenaltyRate} className="space-y-4">
@@ -1053,7 +1150,7 @@ export default function LoanDetailPage() {
       </Modal>
 
       {/* Repayment modal */}
-      <Modal isOpen={repayModal} onClose={() => setRepayModal(false)} title="Record Repayment" size="sm">
+      <Modal isOpen={repayModal} onClose={() => setRepayModal(false)} title="Part Liquidation" size="sm">
         <form onSubmit={handleRepayment} className="space-y-4">
           <div>
             <label className="block text-[13px] font-medium text-slate-700 mb-1.5">
@@ -1110,7 +1207,7 @@ export default function LoanDetailPage() {
               disabled={repaySubmitting || !!repaySuccess}
               className="flex-1 bg-green-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-50 active:scale-95 transition-all shadow-sm shadow-green-600/25"
             >
-              {repaySubmitting ? 'Recording...' : 'Record Repayment'}
+              {repaySubmitting ? 'Processing...' : 'Part Liquidation'}
             </button>
             <button type="button" onClick={() => setRepayModal(false)} className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition-all">
               {repaySuccess ? 'Close' : 'Cancel'}

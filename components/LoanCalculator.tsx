@@ -3,12 +3,23 @@ import Modal from '@/components/Modal';
 import { MdCalculate } from 'react-icons/md';
 import { formatNumberInput, parseFormattedNumber } from '@/lib/numberInput';
 
+type LoanKind = 'flat' | 'reducing' | 'bullet';
+type Frequency = 'weekly' | 'monthly';
+
 interface ScheduleRow {
-  month: number;
+  period: number;
   principal: number;
   interest: number;
   payment: number;
   balance: number;
+}
+
+interface CalculatorValues {
+  principalAmount: string;
+  interestRate: string;
+  tenureMonths: string;
+  loanType: LoanKind;
+  paymentFrequency: Frequency;
 }
 
 interface Props {
@@ -17,52 +28,76 @@ interface Props {
   defaultPrincipal?: string;
   defaultRate?: string;
   defaultTenure?: string;
-  defaultType?: 'flat' | 'reducing';
-  onUseValues?: (values: { principalAmount: string; interestRate: string; tenureMonths: string; loanType: 'flat' | 'reducing' }) => void;
+  defaultType?: LoanKind;
+  onUseValues?: (values: CalculatorValues) => void;
 }
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(n);
 
-function calculate(principal: number, rate: number, tenure: number, type: 'flat' | 'reducing') {
+// Mirrors the backend's LoanService math exactly (rate is PER PERIOD):
+//  - reducing: equal principal installments, interest on outstanding balance
+//  - flat/straight-line: same total interest as reducing, equal payments
+//  - bullet: interest-only each period, principal + interest in the final period
+function calculate(principal: number, rate: number, tenure: number, type: LoanKind) {
   if (!principal || !rate || !tenure) return null;
 
   const schedule: ScheduleRow[] = [];
   let totalInterest = 0;
 
-  if (type === 'flat') {
-    const totalInt = (rate / 100) * principal * (tenure / 12);
-    const totalPayable = principal + totalInt;
-    const monthlyPayment = totalPayable / tenure;
-    const monthlyPrincipal = principal / tenure;
-    const monthlyInterest = totalInt / tenure;
+  const periodPrincipal = principal / tenure;
 
+  // Reducing total (also used by flat/straight-line)
+  let reducingTotal = 0;
+  {
+    let balance = principal;
+    for (let i = 0; i < tenure; i++) {
+      reducingTotal += (rate / 100) * balance;
+      balance -= periodPrincipal;
+    }
+  }
+
+  if (type === 'flat') {
+    totalInterest = reducingTotal;
+    const periodInterest = totalInterest / tenure;
+    const payment = periodPrincipal + periodInterest;
     let balance = principal;
     for (let i = 1; i <= tenure; i++) {
-      balance -= monthlyPrincipal;
+      balance -= periodPrincipal;
       schedule.push({
-        month: i,
-        principal: monthlyPrincipal,
-        interest: monthlyInterest,
-        payment: monthlyPayment,
+        period: i,
+        principal: periodPrincipal,
+        interest: periodInterest,
+        payment,
         balance: Math.max(0, balance),
       });
     }
-    totalInterest = totalInt;
-  } else {
-    const monthlyPrincipal = principal / tenure;
+  } else if (type === 'reducing') {
     let balance = principal;
     for (let i = 1; i <= tenure; i++) {
-      const interest = parseFloat((rate / 12 / 100).toFixed(8)) * balance;
-      const payment = monthlyPrincipal + interest;
+      const interest = (rate / 100) * balance;
       totalInterest += interest;
-      balance -= monthlyPrincipal;
+      balance -= periodPrincipal;
       schedule.push({
-        month: i,
-        principal: monthlyPrincipal,
+        period: i,
+        principal: periodPrincipal,
         interest,
-        payment,
+        payment: periodPrincipal + interest,
         balance: Math.max(0, balance),
+      });
+    }
+  } else {
+    // bullet
+    const periodInterest = (rate / 100) * principal;
+    totalInterest = periodInterest * tenure;
+    for (let i = 1; i <= tenure; i++) {
+      const isFinal = i === tenure;
+      schedule.push({
+        period: i,
+        principal: isFinal ? principal : 0,
+        interest: periodInterest,
+        payment: isFinal ? principal + periodInterest : periodInterest,
+        balance: isFinal ? 0 : principal,
       });
     }
   }
@@ -78,13 +113,16 @@ export default function LoanCalculator({ isOpen, onClose, defaultPrincipal = '',
     principalAmount: defaultPrincipal,
     interestRate: defaultRate,
     tenureMonths: defaultTenure,
-    loanType: defaultType,
+    loanType: defaultType as LoanKind,
+    paymentFrequency: 'monthly' as Frequency,
   });
 
   const principal = parseFormattedNumber(form.principalAmount);
   const rate = parseFormattedNumber(form.interestRate);
   const tenure = Number(form.tenureMonths);
   const result = calculate(principal, rate, tenure, form.loanType);
+
+  const periodNoun = form.paymentFrequency === 'weekly' ? 'week' : 'month';
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Loan Calculator" size="lg">
@@ -101,7 +139,7 @@ export default function LoanCalculator({ isOpen, onClose, defaultPrincipal = '',
             />
           </div>
           <div>
-            <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Interest Rate (% p.a.)</label>
+            <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Interest Rate (% per {periodNoun})</label>
             <input
               type="text" inputMode="decimal" placeholder="e.g. 5"
               value={form.interestRate}
@@ -110,7 +148,7 @@ export default function LoanCalculator({ isOpen, onClose, defaultPrincipal = '',
             />
           </div>
           <div>
-            <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Tenure (months)</label>
+            <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Tenure ({periodNoun}s)</label>
             <input
               type="number" min="1" max="360" placeholder="e.g. 12"
               value={form.tenureMonths}
@@ -119,14 +157,26 @@ export default function LoanCalculator({ isOpen, onClose, defaultPrincipal = '',
             />
           </div>
           <div>
+            <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Frequency</label>
+            <select
+              value={form.paymentFrequency}
+              onChange={e => setForm(f => ({ ...f, paymentFrequency: e.target.value as Frequency }))}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-slate-50 focus:bg-white transition-colors"
+            >
+              <option value="monthly">Monthly</option>
+              <option value="weekly">Weekly</option>
+            </select>
+          </div>
+          <div className="col-span-2">
             <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Loan Type</label>
             <select
               value={form.loanType}
-              onChange={e => setForm(f => ({ ...f, loanType: e.target.value as 'flat' | 'reducing' }))}
+              onChange={e => setForm(f => ({ ...f, loanType: e.target.value as LoanKind }))}
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-slate-50 focus:bg-white transition-colors"
             >
-              <option value="flat">Flat Rate</option>
-              <option value="reducing">Reducing Balance</option>
+              <option value="flat">Flat / Straight Line (equal payments)</option>
+              <option value="reducing">Reducing Balance (declining payments)</option>
+              <option value="bullet">Bullet (interest only, principal at end)</option>
             </select>
           </div>
         </div>
@@ -153,7 +203,7 @@ export default function LoanCalculator({ isOpen, onClose, defaultPrincipal = '',
             <div className="border border-slate-200 rounded-2xl overflow-hidden">
               <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
                 <p className="text-[12px] font-semibold text-slate-600">Repayment Schedule Preview</p>
-                <span className="text-[11px] text-slate-400">{tenure} months</span>
+                <span className="text-[11px] text-slate-400">{tenure} {periodNoun}s</span>
               </div>
               <div className="overflow-auto max-h-[260px]">
                 <table className="w-full text-[12px]">
@@ -168,8 +218,8 @@ export default function LoanCalculator({ isOpen, onClose, defaultPrincipal = '',
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {result.schedule.map(row => (
-                      <tr key={row.month} className="hover:bg-slate-50/60">
-                        <td className="px-4 py-2 text-slate-400 font-mono">{row.month}</td>
+                      <tr key={row.period} className="hover:bg-slate-50/60">
+                        <td className="px-4 py-2 text-slate-400 font-mono">{row.period}</td>
                         <td className="px-4 py-2 text-right text-slate-600">{fmt(row.principal)}</td>
                         <td className="px-4 py-2 text-right text-amber-600">{fmt(row.interest)}</td>
                         <td className="px-4 py-2 text-right font-semibold text-green-700">{fmt(row.payment)}</td>

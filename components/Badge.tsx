@@ -1,6 +1,6 @@
 import React from 'react';
 
-type Variant = 'active' | 'notActive' | 'repaid' | 'defaulted' | 'deposit' | 'withdrawal' | 'flat' | 'reducing' | 'pending';
+type Variant = 'active' | 'notActive' | 'repaid' | 'defaulted' | 'deposit' | 'withdrawal' | 'flat' | 'reducing' | 'bullet' | 'pending' | 'weekly' | 'monthly';
 
 const variantMap: Record<Variant, string> = {
   active:     'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200',
@@ -11,7 +11,10 @@ const variantMap: Record<Variant, string> = {
   withdrawal: 'bg-red-50     text-red-600     ring-1 ring-red-200',
   flat:       'bg-violet-50  text-violet-700  ring-1 ring-violet-200',
   reducing:   'bg-amber-50   text-amber-700   ring-1 ring-amber-200',
+  bullet:     'bg-cyan-50    text-cyan-700    ring-1 ring-cyan-200',
   pending:    'bg-amber-50 text-amber-700 ring-1 ring-amber-200',
+  weekly:     'bg-teal-50    text-teal-700    ring-1 ring-teal-200',
+  monthly:    'bg-slate-50   text-slate-600   ring-1 ring-slate-200',
 };
 
 const labelMap: Record<Variant, string> = {
@@ -23,7 +26,10 @@ const labelMap: Record<Variant, string> = {
   withdrawal: 'Withdrawal',
   flat:       'Flat',
   reducing:   'Reducing',
+  bullet:     'Bullet',
   pending:    'Pending Approval',
+  weekly:     'Weekly',
+  monthly:    'Monthly',
 };
 
 const dotMap: Record<Variant, string> = {
@@ -35,7 +41,10 @@ const dotMap: Record<Variant, string> = {
   withdrawal: 'bg-red-500',
   flat:       'bg-violet-500',
   reducing:   'bg-amber-500',
+  bullet:     'bg-cyan-500',
   pending:    'bg-amber-500',
+  weekly:     'bg-teal-500',
+  monthly:    'bg-slate-400',
 };
 
 export default function Badge({ variant }: { variant: Variant }) {

@@ -4,6 +4,7 @@ export interface DepositAccountSummary {
   id: number;
   accountNumber: string;
   balance: number;
+  savingsProductId?: number | null;
 }
 
 export interface LoanAccountSummary {
@@ -17,6 +18,7 @@ export interface Customer {
   id: number;
   name: string;
   phone: string;
+  accountOfficer?: string | null;
   createdAt: string;
   depositAccounts: DepositAccountSummary[];
   loanAccounts: LoanAccountSummary[];
@@ -47,11 +49,12 @@ export interface CustomersResponse {
 export interface CreateCustomerDto {
   name: string;
   phone: string;
+  accountOfficer?: string;
 }
 
 export interface CreateCustomerResponse {
   message: string;
-  customer: { id: number; name: string; phone: string };
+  customer: { id: number; name: string; phone: string; accountOfficer?: string | null };
   depositAccount: { id: number; accountNumber: string };
   loanAccount: { id: number; accountNumber: string; status: string };
 }
@@ -94,8 +97,8 @@ export const customerService = {
   create: (dto: CreateCustomerDto) =>
     apiClient.post<CreateCustomerResponse>('/customer', dto),
 
-  update: (id: number, dto: { name?: string; phone?: string }) =>
-    apiClient.patch<{ message: string; customer: { id: number; name: string; phone: string } }>(
+  update: (id: number, dto: { name?: string; phone?: string; accountOfficer?: string }) =>
+    apiClient.patch<{ message: string; customer: { id: number; name: string; phone: string; accountOfficer?: string | null } }>(
       `/customer/${id}`,
       dto,
     ),
@@ -114,4 +117,9 @@ export const customerService = {
 
   getCreditScore: (id: number) =>
     apiClient.get<CreditScore>(`/customer/${id}/credit-score`),
+
+  provisionLogin: (id: number, email: string) =>
+    apiClient.post<{ message: string; user: { id: number; email: string }; devInviteLink?: string }>(
+      `/customer/${id}/provision-login`, { email },
+    ),
 };

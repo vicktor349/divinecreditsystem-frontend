@@ -6,6 +6,7 @@ type User = {
   email: string;
   name: string;
   role: string;
+  customerId?: number | null;
 };
 
 type UserContextType = {

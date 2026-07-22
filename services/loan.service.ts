@@ -16,7 +16,8 @@ export interface Loan {
   principalAmount: number;
   interestRate: number;
   tenureMonths: number;
-  loanType: 'flat' | 'reducing';
+  loanType: 'flat' | 'reducing' | 'bullet';
+  paymentFrequency: 'weekly' | 'monthly';
   outstandingBalance: number;
   startDate: string;
   endDate: string;
@@ -81,7 +82,8 @@ export interface CreateLoanDto {
   principalAmount: number;
   interestRate: number;
   tenureMonths: number;
-  loanType: 'flat' | 'reducing';
+  loanType: 'flat' | 'reducing' | 'bullet';
+  paymentFrequency?: 'weekly' | 'monthly';
 }
 
 export interface CreateRepaymentDto {
@@ -148,6 +150,11 @@ export const loanService = {
 
   rejectLoan: (id: number, reason: string) =>
     apiClient.patch<{ message: string; loanAccount: Loan }>(`/loan/${id}/reject`, { reason }),
+
+  updateInterestRate: (id: number, interestRate: number) =>
+    apiClient.patch<{ message: string; loanAccount: Loan; totalPayable: number; totalInterest: number; nextPaymentAmount: number }>(
+      `/loan/${id}/interest-rate`, { interestRate },
+    ),
 
   // Feature #4: Default penalty
   setDefaultPenaltyRate: (id: number, rate: number) =>

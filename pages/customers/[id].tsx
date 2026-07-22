@@ -8,8 +8,10 @@ import Badge from '@/components/Badge';
 import Modal from '@/components/Modal';
 import EmptyState from '@/components/EmptyState';
 import { useCustomer } from '@/hooks/useCustomers';
+import { useCustomerSavingsAccounts, useSavingsProducts } from '@/hooks/useSavings';
 import { loanService } from '@/services/loan.service';
 import { depositService } from '@/services/deposit.service';
+import { savingsService } from '@/services/savings.service';
 import { customerService, CreditScore, CustomerNote } from '@/services/customer.service';
 import { useToast } from '@/context/ToastContext';
 import {
@@ -22,6 +24,7 @@ import {
   MdEdit,
   MdPerson,
   MdPhone,
+  MdBadge,
   MdArrowForward,
   MdCheckCircle,
   MdDelete,
@@ -31,6 +34,8 @@ import {
   MdClose,
   MdAccessTime,
   MdCalculate,
+  MdSavings,
+  MdLock,
 } from 'react-icons/md';
 import { formatNumberInput, parseFormattedNumber } from '@/lib/numberInput';
 import LoanCalculator from '@/components/LoanCalculator';
@@ -90,11 +95,13 @@ export default function CustomerDetailPage() {
   const router = useRouter();
   const id = router.query.id ? Number(router.query.id) : null;
   const { customer, isLoading, isError, mutate } = useCustomer(id);
+  const { accounts: savingsAccounts, isLoading: savingsLoading, mutate: mutateSavings } = useCustomerSavingsAccounts(id);
+  const { products: savingsProducts } = useSavingsProducts();
 
   const { showToast } = useToast();
 
   const [editModal, setEditModal] = useState(false);
-  const [editForm, setEditForm] = useState({ name: '', phone: '' });
+  const [editForm, setEditForm] = useState({ name: '', phone: '', accountOfficer: '' });
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState('');
 
@@ -106,9 +113,28 @@ export default function CustomerDetailPage() {
   const [txSuccess, setTxSuccess] = useState('');
 
   const [loanModal, setLoanModal] = useState(false);
-  const [loanForm, setLoanForm] = useState({ principalAmount: '', interestRate: '', tenureMonths: '', loanType: 'flat' as 'flat' | 'reducing' });
+  const [loanForm, setLoanForm] = useState({
+    principalAmount: '',
+    interestRate: '',
+    tenureMonths: '',
+    loanType: 'flat' as 'flat' | 'reducing' | 'bullet',
+    paymentFrequency: 'monthly' as 'weekly' | 'monthly',
+  });
   const [loanSubmitting, setLoanSubmitting] = useState(false);
   const [loanError, setLoanError] = useState('');
+
+  // Provision customer portal login
+  const [provisionModal, setProvisionModal] = useState(false);
+  const [provisionForm, setProvisionForm] = useState({ email: '' });
+  const [provisionSubmitting, setProvisionSubmitting] = useState(false);
+  const [provisionError, setProvisionError] = useState('');
+  const [provisionResult, setProvisionResult] = useState<{ message: string; devInviteLink?: string } | null>(null);
+
+  // Savings account
+  const [savingsAccountModal, setSavingsAccountModal] = useState(false);
+  const [savingsAccountForm, setSavingsAccountForm] = useState({ savingsProductId: '', targetAmount: '', targetDate: '' });
+  const [savingsAccountSubmitting, setSavingsAccountSubmitting] = useState(false);
+  const [savingsAccountError, setSavingsAccountError] = useState('');
 
   // Archive
   const [archiveModal, setArchiveModal] = useState(false);
@@ -149,11 +175,11 @@ export default function CustomerDetailPage() {
   );
   if (!isAuthenticated && !authLoading) { router.push('/'); return null; }
 
-  const deposit = customer?.depositAccounts[0];
+  const deposit = customer?.depositAccounts.find(a => !a.savingsProductId) ?? customer?.depositAccounts[0];
 
   function openEditModal() {
     if (!customer) return;
-    setEditForm({ name: customer.name, phone: customer.phone });
+    setEditForm({ name: customer.name, phone: customer.phone, accountOfficer: customer.accountOfficer ?? '' });
     setEditError('');
     setEditModal(true);
   }
@@ -164,7 +190,7 @@ export default function CustomerDetailPage() {
     setEditError('');
     setEditSubmitting(true);
     try {
-      await customerService.update(customer.id, editForm);
+      await customerService.update(customer.id, { ...editForm, accountOfficer: editForm.accountOfficer || undefined });
       mutate();
       setEditModal(false);
       showToast('Customer updated successfully', 'success');
@@ -223,6 +249,7 @@ export default function CustomerDetailPage() {
         interestRate: parseFormattedNumber(loanForm.interestRate),
         tenureMonths: Number(loanForm.tenureMonths),
         loanType: loanForm.loanType,
+        paymentFrequency: loanForm.paymentFrequency,
       });
       setLoanModal(false);
       mutate();
@@ -234,6 +261,48 @@ export default function CustomerDetailPage() {
       setLoanError(err?.response?.data?.message ?? 'Failed to issue loan');
     } finally {
       setLoanSubmitting(false);
+    }
+  }
+
+  async function handleCreateSavingsAccount(e: React.FormEvent) {
+    e.preventDefault();
+    if (!customer) return;
+    setSavingsAccountError('');
+    setSavingsAccountSubmitting(true);
+    try {
+      if (!savingsAccountForm.savingsProductId) {
+        setSavingsAccountError('Please select a savings product');
+        return;
+      }
+      await savingsService.createSavingsAccount({
+        customerId: customer.id,
+        savingsProductId: Number(savingsAccountForm.savingsProductId),
+        targetAmount: savingsAccountForm.targetAmount ? parseFormattedNumber(savingsAccountForm.targetAmount) : undefined,
+        targetDate: savingsAccountForm.targetDate || undefined,
+      });
+      setSavingsAccountModal(false);
+      mutateSavings();
+      showToast('Savings account created', 'success');
+    } catch (err: any) {
+      setSavingsAccountError(err?.response?.data?.message ?? 'Failed to create savings account');
+    } finally {
+      setSavingsAccountSubmitting(false);
+    }
+  }
+
+  async function handleProvisionLogin(e: React.FormEvent) {
+    e.preventDefault();
+    if (!customer) return;
+    setProvisionError('');
+    setProvisionSubmitting(true);
+    try {
+      const res: any = await customerService.provisionLogin(customer.id, provisionForm.email);
+      setProvisionResult(res);
+      showToast('Login provisioned — invite email sent', 'success');
+    } catch (err: any) {
+      setProvisionError(err?.response?.data?.message ?? 'Failed to provision login');
+    } finally {
+      setProvisionSubmitting(false);
     }
   }
 
@@ -316,6 +385,9 @@ export default function CustomerDetailPage() {
                 <div>
                   <h1 className="text-[20px] font-bold text-slate-900">{customer.name}</h1>
                   <p className="text-sm text-slate-500 mt-0.5">{customer.phone}</p>
+                  {customer.accountOfficer && (
+                    <p className="text-xs text-slate-500 mt-0.5">Account Officer: <span className="font-medium text-slate-700">{customer.accountOfficer}</span></p>
+                  )}
                   <p className="text-xs text-slate-400 mt-0.5">Customer since {fmtDateShort(customer.createdAt)}</p>
                 </div>
               </div>
@@ -350,6 +422,14 @@ export default function CustomerDetailPage() {
                 >
                   <MdCalculate size={15} /> Calculator
                 </button>
+                {user?.role === 'admin' && (
+                  <button
+                    onClick={() => { setProvisionForm({ email: '' }); setProvisionError(''); setProvisionResult(null); setProvisionModal(true); }}
+                    className="flex items-center gap-1.5 border border-indigo-200 text-indigo-600 px-3.5 py-2 rounded-xl text-sm font-medium hover:bg-indigo-50 active:scale-95 transition-all"
+                  >
+                    <MdSend size={15} /> Provision Login
+                  </button>
+                )}
                 <button
                   onClick={() => setArchiveModal(true)}
                   className="flex items-center gap-1.5 border border-red-200 text-red-500 px-3.5 py-2 rounded-xl text-sm font-medium hover:bg-red-50 active:scale-95 transition-all"
@@ -429,6 +509,56 @@ export default function CustomerDetailPage() {
                   </button>
                 )}
               </div>
+            </div>
+
+            {/* Savings Accounts */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm animate-slide-up" style={{ animationDelay: '100ms' }}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <MdSavings size={16} className="text-purple-500" />
+                  <p className="text-slate-400 text-[11px] uppercase tracking-wider font-semibold">Savings Accounts</p>
+                </div>
+                <span className="text-[11px] text-slate-400">{savingsAccounts.length} account{savingsAccounts.length !== 1 ? 's' : ''}</span>
+              </div>
+              {savingsLoading ? (
+                <div className="skeleton h-16 rounded-xl" />
+              ) : savingsAccounts.length === 0 ? (
+                <p className="text-sm text-slate-400">No savings accounts found.</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {savingsAccounts.map(sa => {
+                    const target = sa.targetAmount ? Number(sa.targetAmount) : null;
+                    const progressPct = target ? Math.min(100, (Number(sa.balance) / target) * 100) : null;
+                    return (
+                      <div key={sa.id} className="border border-slate-100 rounded-xl p-3">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[12px] font-semibold text-slate-700">{sa.savingsProduct.name}</span>
+                          {sa.savingsProduct.targetLocked && <MdLock size={13} className="text-amber-500" />}
+                        </div>
+                        <p className="text-[16px] font-bold text-slate-900">{fmt(Number(sa.balance))}</p>
+                        <p className="font-mono text-[11px] text-slate-400 mt-0.5">{sa.accountNumber}</p>
+                        {target != null && progressPct != null && (
+                          <div className="mt-2">
+                            <div className="flex justify-between text-[10px] text-slate-400 mb-1">
+                              <span>Target: {fmt(target)}</span>
+                              <span>{progressPct.toFixed(0)}%</span>
+                            </div>
+                            <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-purple-500 rounded-full transition-all" style={{ width: `${progressPct}%` }} />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <button
+                onClick={() => { setSavingsAccountForm({ savingsProductId: '', targetAmount: '', targetDate: '' }); setSavingsAccountError(''); setSavingsAccountModal(true); }}
+                className="mt-3 w-full flex items-center justify-center gap-1.5 border border-purple-200 text-purple-600 px-3 py-2 rounded-xl text-sm font-medium hover:bg-purple-50 active:scale-95 transition-all"
+              >
+                <MdAdd size={15} /> New Savings Account
+              </button>
             </div>
 
             {/* Credit Score */}
@@ -633,6 +763,19 @@ export default function CustomerDetailPage() {
               />
             </div>
           </div>
+          <div>
+            <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Account Officer</label>
+            <div className="relative">
+              <MdBadge className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+              <input
+                type="text"
+                placeholder="e.g. Chidinma Eze"
+                value={editForm.accountOfficer}
+                onChange={e => setEditForm(f => ({ ...f, accountOfficer: e.target.value }))}
+                className="w-full border border-slate-200 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-slate-50 focus:bg-white transition-colors"
+              />
+            </div>
+          </div>
           {editError && <p className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{editError}</p>}
           <div className="flex gap-3 pt-1">
             <button
@@ -737,7 +880,9 @@ export default function CustomerDetailPage() {
               />
             </div>
             <div>
-              <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Interest Rate (% per month)</label>
+              <label className="block text-[13px] font-medium text-slate-700 mb-1.5">
+                Interest Rate (% per {loanForm.paymentFrequency === 'weekly' ? 'week' : 'month'})
+              </label>
               <input
                 type="text" inputMode="decimal" required placeholder="e.g. 2"
                 value={loanForm.interestRate}
@@ -746,7 +891,9 @@ export default function CustomerDetailPage() {
               />
             </div>
             <div>
-              <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Tenure (months)</label>
+              <label className="block text-[13px] font-medium text-slate-700 mb-1.5">
+                Tenure ({loanForm.paymentFrequency === 'weekly' ? 'weeks' : 'months'})
+              </label>
               <input
                 type="number" min="1" required placeholder="e.g. 12"
                 value={loanForm.tenureMonths}
@@ -755,17 +902,34 @@ export default function CustomerDetailPage() {
               />
             </div>
             <div>
+              <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Repayment Frequency</label>
+              <select
+                value={loanForm.paymentFrequency}
+                onChange={e => setLoanForm(f => ({ ...f, paymentFrequency: e.target.value as 'weekly' | 'monthly' }))}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-slate-50 focus:bg-white transition-colors"
+              >
+                <option value="monthly">Monthly</option>
+                <option value="weekly">Weekly</option>
+              </select>
+            </div>
+            <div>
               <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Loan Type</label>
               <select
                 value={loanForm.loanType}
-                onChange={e => setLoanForm(f => ({ ...f, loanType: e.target.value as 'flat' | 'reducing' }))}
+                onChange={e => setLoanForm(f => ({ ...f, loanType: e.target.value as 'flat' | 'reducing' | 'bullet' }))}
                 className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-slate-50 focus:bg-white transition-colors"
               >
-                <option value="flat">Flat Rate</option>
+                <option value="flat">Flat / Straight Line</option>
                 <option value="reducing">Reducing Balance</option>
+                <option value="bullet">Bullet (interest only, principal at end)</option>
               </select>
             </div>
           </div>
+          {loanForm.loanType === 'bullet' && (
+            <div className="bg-cyan-50 border border-cyan-200 rounded-xl px-4 py-3 text-sm text-cyan-700">
+              Bullet loan: the customer pays interest only each {loanForm.paymentFrequency === 'weekly' ? 'week' : 'month'}, and repays the full principal plus the final interest in the last period.
+            </div>
+          )}
           {loanError && <p className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{loanError}</p>}
           <div className="flex gap-3 pt-1">
             <button
@@ -783,6 +947,115 @@ export default function CustomerDetailPage() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* New savings account modal */}
+      <Modal isOpen={savingsAccountModal} onClose={() => setSavingsAccountModal(false)} title="New Savings Account" size="sm">
+        <form onSubmit={handleCreateSavingsAccount} className="space-y-4">
+          <div>
+            <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Savings Product</label>
+            <select
+              required
+              value={savingsAccountForm.savingsProductId}
+              onChange={e => setSavingsAccountForm(f => ({ ...f, savingsProductId: e.target.value }))}
+              className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-50 focus:bg-white transition-colors"
+            >
+              <option value="">Select a product...</option>
+              {savingsProducts.filter(p => p.isActive).map(p => (
+                <option key={p.id} value={p.id}>{p.name} ({p.interestRate}% {p.interestFrequency})</option>
+              ))}
+            </select>
+          </div>
+          {(() => {
+            const selected = savingsProducts.find(p => String(p.id) === savingsAccountForm.savingsProductId);
+            if (!selected?.targetLocked) return null;
+            return (
+              <>
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
+                  This product locks withdrawals until the target amount or date is reached.
+                </div>
+                <div>
+                  <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Target Amount (₦)</label>
+                  <input
+                    type="text" inputMode="decimal" placeholder="e.g. 500,000"
+                    value={savingsAccountForm.targetAmount}
+                    onChange={e => setSavingsAccountForm(f => ({ ...f, targetAmount: formatNumberInput(e.target.value) }))}
+                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-50 focus:bg-white transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Target Date</label>
+                  <input
+                    type="date"
+                    value={savingsAccountForm.targetDate}
+                    onChange={e => setSavingsAccountForm(f => ({ ...f, targetDate: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-50 focus:bg-white transition-colors"
+                  />
+                </div>
+              </>
+            );
+          })()}
+          {savingsAccountError && <p className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{savingsAccountError}</p>}
+          <div className="flex gap-3 pt-1">
+            <button
+              type="submit"
+              disabled={savingsAccountSubmitting}
+              className="flex-1 bg-purple-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-purple-700 disabled:opacity-50 active:scale-95 transition-all"
+            >
+              {savingsAccountSubmitting ? 'Creating...' : 'Create Account'}
+            </button>
+            <button type="button" onClick={() => setSavingsAccountModal(false)} className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition-all">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Provision customer login modal */}
+      <Modal isOpen={provisionModal} onClose={() => setProvisionModal(false)} title="Provision Customer Login" size="sm">
+        {provisionResult ? (
+          <div className="space-y-4">
+            <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700">
+              {provisionResult.message}
+            </div>
+            {provisionResult.devInviteLink && (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-500 break-all">
+                Dev mode (no SMTP configured) — invite link: <a className="text-green-600 underline" href={provisionResult.devInviteLink}>{provisionResult.devInviteLink}</a>
+              </div>
+            )}
+            <button onClick={() => setProvisionModal(false)} className="w-full border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition-all">
+              Close
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleProvisionLogin} className="space-y-4">
+            <p className="text-sm text-slate-600">
+              This creates a customer portal login for <strong>{customer?.name}</strong> and emails them an invite link to set their own password.
+            </p>
+            <div>
+              <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Customer Email</label>
+              <input
+                type="email" required placeholder="customer@example.com"
+                value={provisionForm.email}
+                onChange={e => setProvisionForm({ email: e.target.value })}
+                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 focus:bg-white transition-colors"
+              />
+            </div>
+            {provisionError && <p className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">{provisionError}</p>}
+            <div className="flex gap-3 pt-1">
+              <button
+                type="submit"
+                disabled={provisionSubmitting}
+                className="flex-1 bg-indigo-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 active:scale-95 transition-all"
+              >
+                {provisionSubmitting ? 'Provisioning...' : 'Provision Login'}
+              </button>
+              <button type="button" onClick={() => setProvisionModal(false)} className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition-all">
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
       </Modal>
 
       {/* Archive confirmation modal */}

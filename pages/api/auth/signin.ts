@@ -14,6 +14,7 @@ type SignInResponse = {
     email: string;
     name: string;
     role: string;
+    customerId?: number | null;
   };
 };
 
@@ -74,7 +75,8 @@ export default async function handler(
         id: data.user.id,
         email: data.user.email,
         name: data.user.name,
-        role: data.user.role
+        role: data.user.role,
+        customerId: data.user.customerId ?? null,
       }), {
         httpOnly: false,
         secure: process.env.NODE_ENV === 'production',
@@ -91,7 +93,8 @@ export default async function handler(
         id: data.user.id,
         email: data.user.email,
         name: data.user.name,
-        role: data.user.role
+        role: data.user.role,
+        customerId: data.user.customerId ?? null,
       }
     });
 

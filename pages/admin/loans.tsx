@@ -9,6 +9,7 @@ import EmptyState from '@/components/EmptyState';
 import { useUser } from '@/context/UserContext';
 import { loanService } from '@/services/loan.service';
 import { depositService } from '@/services/deposit.service';
+import { savingsService } from '@/services/savings.service';
 import { useToast } from '@/context/ToastContext';
 import {
   MdCheckCircle,
@@ -18,6 +19,7 @@ import {
   MdAccessTime,
   MdTrendingUp,
   MdTrendingDown,
+  MdSavings,
 } from 'react-icons/md';
 
 const fmt = (n: number) =>
@@ -26,7 +28,7 @@ const fmt = (n: number) =>
 const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-type ActiveTab = 'loans' | 'deposits';
+type ActiveTab = 'loans' | 'deposits' | 'savings-rates';
 
 export default function AdminLoansPage() {
   const { user, isLoading: authLoading, isAuthenticated } = useUser();
@@ -47,6 +49,12 @@ export default function AdminLoansPage() {
   const [depositRejectReason, setDepositRejectReason] = useState('');
   const [depositProcessing, setDepositProcessing] = useState<number | null>(null);
 
+  // Savings rate change request state
+  const [savingsRejectModal, setSavingsRejectModal] = useState(false);
+  const [selectedSavingsRequestId, setSelectedSavingsRequestId] = useState<number | null>(null);
+  const [savingsRejectReason, setSavingsRejectReason] = useState('');
+  const [savingsProcessing, setSavingsProcessing] = useState<number | null>(null);
+
   const { data: loanData, isLoading: loanLoading, mutate: mutateLoan } = useSWR(
     isAuthenticated && user?.role === 'admin' ? 'pending-loans' : null,
     () => loanService.getPendingLoans(),
@@ -55,6 +63,11 @@ export default function AdminLoansPage() {
   const { data: depositData, isLoading: depositLoading, mutate: mutateDeposits } = useSWR(
     isAuthenticated && user?.role === 'admin' ? 'pending-deposit-requests' : null,
     () => depositService.getPendingDepositRequests(),
+  );
+
+  const { data: savingsRateData, isLoading: savingsRateLoading, mutate: mutateSavingsRates } = useSWR(
+    isAuthenticated && user?.role === 'admin' ? 'pending-savings-rate-requests' : null,
+    () => savingsService.getPendingRateChangeRequests(),
   );
 
   if (authLoading) return (
@@ -83,6 +96,7 @@ export default function AdminLoansPage() {
 
   const loans = (loanData as any)?.loans ?? [];
   const depositRequests = (depositData as any)?.requests ?? [];
+  const savingsRateRequests = (savingsRateData as any)?.requests ?? [];
 
   // ── Loan actions ────────────────────────────────────────────────
   async function handleApprove(loanId: number) {
@@ -154,8 +168,44 @@ export default function AdminLoansPage() {
     }
   }
 
+  // ── Savings rate change request actions ──────────────────────────
+  async function handleApproveSavingsRate(id: number) {
+    setSavingsProcessing(id);
+    try {
+      const res: any = await savingsService.approveRateChangeRequest(id);
+      showToast(res.message ?? 'Rate change approved', 'success');
+      mutateSavingsRates();
+    } catch (err: any) {
+      showToast(err?.response?.data?.message ?? 'Failed to approve request', 'error');
+    } finally {
+      setSavingsProcessing(null);
+    }
+  }
+
+  function openSavingsRejectModal(id: number) {
+    setSelectedSavingsRequestId(id);
+    setSavingsRejectReason('');
+    setSavingsRejectModal(true);
+  }
+
+  async function handleRejectSavingsRate() {
+    if (!selectedSavingsRequestId) return;
+    setSavingsProcessing(selectedSavingsRequestId);
+    try {
+      await savingsService.rejectRateChangeRequest(selectedSavingsRequestId, savingsRejectReason || 'Rejected by admin');
+      showToast('Rate change request rejected', 'success');
+      setSavingsRejectModal(false);
+      mutateSavingsRates();
+    } catch (err: any) {
+      showToast(err?.response?.data?.message ?? 'Failed to reject request', 'error');
+    } finally {
+      setSavingsProcessing(null);
+    }
+  }
+
   const pendingLoansCount = loans.length;
   const pendingDepositsCount = depositRequests.length;
+  const pendingSavingsRatesCount = savingsRateRequests.length;
 
   return (
     <DashboardLayout>
@@ -179,6 +229,11 @@ export default function AdminLoansPage() {
                 {pendingDepositsCount} deposit{pendingDepositsCount !== 1 ? 's' : ''}
               </span>
             )}
+            {pendingSavingsRatesCount > 0 && (
+              <span className="bg-purple-100 text-purple-700 text-sm font-semibold px-3 py-1.5 rounded-xl">
+                {pendingSavingsRatesCount} savings rate{pendingSavingsRatesCount !== 1 ? 's' : ''}
+              </span>
+            )}
           </div>
         </div>
 
@@ -187,6 +242,7 @@ export default function AdminLoansPage() {
           {([
             ['loans', 'Loan Approvals', pendingLoansCount],
             ['deposits', 'Deposit Requests', pendingDepositsCount],
+            ['savings-rates', 'Savings Rate Requests', pendingSavingsRatesCount],
           ] as const).map(([t, label, count]) => (
             <button
               key={t}
@@ -248,7 +304,7 @@ export default function AdminLoansPage() {
                           </div>
                           <div className="bg-slate-50 rounded-xl px-3 py-2">
                             <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-0.5">Interest</p>
-                            <p className="text-[13px] font-bold text-slate-900">{loan.interestRate}% p.m.</p>
+                            <p className="text-[13px] font-bold text-slate-900">{loan.interestRate}% {loan.paymentFrequency === 'weekly' ? 'p.w.' : 'p.m.'}</p>
                           </div>
                           <div className="bg-slate-50 rounded-xl px-3 py-2">
                             <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-0.5">Tenure</p>
@@ -393,6 +449,73 @@ export default function AdminLoansPage() {
             )}
           </div>
         )}
+        {/* ── Savings rate change requests tab ────────────────────── */}
+        {activeTab === 'savings-rates' && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            {savingsRateLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : savingsRateRequests.length === 0 ? (
+              <EmptyState
+                icon={<MdSavings />}
+                title="No pending rate change requests"
+                description="All savings interest rate change requests have been reviewed."
+              />
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {savingsRateRequests.map((req: any, i: number) => (
+                  <div key={req.id} className="p-5 hover:bg-slate-50/50 transition-colors animate-slide-up" style={{ animationDelay: `${i * 40}ms` }}>
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                      <div className="flex-1 space-y-3">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1 rounded-full bg-purple-100 text-purple-700">
+                            <MdSavings size={13} /> {req.savingsProduct?.name}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                          <div className="bg-slate-50 rounded-xl px-3 py-2">
+                            <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-0.5">Current Rate</p>
+                            <p className="text-[13px] font-bold text-slate-900">{req.currentRate}%</p>
+                          </div>
+                          <div className="bg-slate-50 rounded-xl px-3 py-2">
+                            <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-0.5">Requested Rate</p>
+                            <p className="text-[13px] font-bold text-purple-700">{req.requestedRate}%</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4 text-[12px] text-slate-400">
+                          <span className="flex items-center gap-1">
+                            <MdPerson size={13} /> Requested by {req.requestedBy?.name ?? req.requestedBy?.email}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <MdAccessTime size={13} /> {fmtDate(req.createdAt)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex sm:flex-col gap-2 sm:min-w-[140px]">
+                        <button
+                          onClick={() => handleApproveSavingsRate(req.id)}
+                          disabled={savingsProcessing === req.id}
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-50 active:scale-95 transition-all shadow-sm shadow-green-600/25"
+                        >
+                          <MdCheckCircle size={16} />
+                          {savingsProcessing === req.id ? 'Processing...' : 'Approve'}
+                        </button>
+                        <button
+                          onClick={() => openSavingsRejectModal(req.id)}
+                          disabled={savingsProcessing === req.id}
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 border border-red-200 text-red-600 px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-red-50 disabled:opacity-50 active:scale-95 transition-all"
+                        >
+                          <MdCancel size={16} /> Reject
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Loan reject modal */}
@@ -451,6 +574,38 @@ export default function AdminLoansPage() {
             </button>
             <button
               onClick={() => setDepositRejectModal(false)}
+              className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition-all"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Savings rate change reject modal */}
+      <Modal isOpen={savingsRejectModal} onClose={() => setSavingsRejectModal(false)} title="Reject Rate Change Request" size="sm">
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">Provide a reason for rejecting this interest rate change request.</p>
+          <div>
+            <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Rejection Reason</label>
+            <textarea
+              value={savingsRejectReason}
+              onChange={e => setSavingsRejectReason(e.target.value)}
+              placeholder="e.g. Rate change not justified at this time"
+              rows={3}
+              className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 bg-slate-50 focus:bg-white transition-colors resize-none"
+            />
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={handleRejectSavingsRate}
+              disabled={savingsProcessing !== null}
+              className="flex-1 bg-red-500 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-red-600 disabled:opacity-50 active:scale-95 transition-all"
+            >
+              {savingsProcessing !== null ? 'Rejecting...' : 'Confirm Rejection'}
+            </button>
+            <button
+              onClick={() => setSavingsRejectModal(false)}
               className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition-all"
             >
               Cancel

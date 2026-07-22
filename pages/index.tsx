@@ -7,7 +7,7 @@ import { MdEmail, MdLock, MdVisibility, MdVisibilityOff } from 'react-icons/md';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { setUser, isAuthenticated, isLoading: authLoading } = useUser();
+  const { user, setUser, isAuthenticated, isLoading: authLoading } = useUser();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,9 +18,9 @@ export default function LoginPage() {
   // Redirect if already authenticated
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
-      router.replace('/dashboard');
+      router.replace(user?.role === 'customer' ? '/portal/dashboard' : '/dashboard');
     }
-  }, [isAuthenticated, authLoading, router]);
+  }, [isAuthenticated, authLoading, user, router]);
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,7 +46,7 @@ export default function LoginPage() {
       }
 
       setUser(data.user);
-      router.replace('/dashboard');
+      router.replace(data.user?.role === 'customer' ? '/portal/dashboard' : '/dashboard');
     } catch {
       setError('Unable to connect to the server. Please try again.');
     } finally {

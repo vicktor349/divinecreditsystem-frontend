@@ -7,7 +7,7 @@ import {
   MdDescription, MdPerson, MdLogout,
   MdMenu, MdClose, MdChevronRight,
   MdShield, MdBarChart, MdManageAccounts,
-  MdAccessTime, MdTrendingUp,
+  MdAccessTime, MdTrendingUp, MdSavings,
 } from 'react-icons/md';
 import { useUser } from '@/context/UserContext';
 
@@ -22,6 +22,7 @@ const links = [
   { href: '/admin/audit',     label: 'Audit Trail',     icon: MdShield,         section: 'admin' },
   { href: '/admin/loans',        label: 'Pending Loans',   icon: MdAccessTime,   section: 'admin' },
   { href: '/admin/collections',  label: 'Collections',     icon: MdTrendingUp,   section: 'admin' },
+  { href: '/admin/savings-products', label: 'Savings Products', icon: MdSavings, section: 'admin' },
 ];
 
 const mainLinks  = links.filter(l => l.section === 'main');

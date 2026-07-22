@@ -12,7 +12,7 @@ import Pagination from '@/components/Pagination';
 import { useCustomers } from '@/hooks/useCustomers';
 import { customerService } from '@/services/customer.service';
 import { useToast } from '@/context/ToastContext';
-import { MdPeople, MdSearch, MdAdd, MdArrowForward, MdPhone, MdPerson } from 'react-icons/md';
+import { MdPeople, MdSearch, MdAdd, MdArrowForward, MdPhone, MdPerson, MdBadge } from 'react-icons/md';
 
 const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -29,7 +29,7 @@ export default function CustomersPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', phone: '' });
+  const [form, setForm] = useState({ name: '', phone: '', accountOfficer: '' });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
 
@@ -51,9 +51,9 @@ export default function CustomersPage() {
     setFormError('');
     setSubmitting(true);
     try {
-      await customerService.create(form);
+      await customerService.create({ ...form, accountOfficer: form.accountOfficer || undefined });
       setCreateOpen(false);
-      setForm({ name: '', phone: '' });
+      setForm({ name: '', phone: '', accountOfficer: '' });
       mutate();
       showToast('Customer created successfully', 'success');
     } catch (err: any) {
@@ -183,7 +183,7 @@ export default function CustomersPage() {
       </div>
 
       {/* Create customer modal */}
-      <Modal isOpen={createOpen} onClose={() => { setCreateOpen(false); setFormError(''); setForm({ name: '', phone: '' }); }} title="New Customer">
+      <Modal isOpen={createOpen} onClose={() => { setCreateOpen(false); setFormError(''); setForm({ name: '', phone: '', accountOfficer: '' }); }} title="New Customer">
         <form onSubmit={handleCreate} className="space-y-4">
           <div>
             <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Full Name</label>
@@ -209,6 +209,19 @@ export default function CustomersPage() {
                 placeholder="e.g. 08012345678"
                 value={form.phone}
                 onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                className="w-full border border-slate-200 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-slate-50 focus:bg-white transition-colors"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-[13px] font-medium text-slate-700 mb-1.5">Account Officer</label>
+            <div className="relative">
+              <MdBadge className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                type="text"
+                placeholder="e.g. Chidinma Eze"
+                value={form.accountOfficer}
+                onChange={e => setForm(f => ({ ...f, accountOfficer: e.target.value }))}
                 className="w-full border border-slate-200 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-slate-50 focus:bg-white transition-colors"
               />
             </div>
